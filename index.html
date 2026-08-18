@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#4F6DF5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="记账本">
+<title>我的记账本</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ 记账（主页面：输入数字） ============ -->
+  <section id="view-input" class="view is-active">
+    <header class="topbar">
+      <h1 class="topbar-title">记账</h1>
+      <div class="topbar-chip" id="monthTotalChip" onclick="showRecords()">本月 ¥0.00</div>
+    </header>
+
+    <div class="input-stage">
+      <div class="date-line" id="inputDate">今天 · 2026年8月18日</div>
+      <div class="amount-display">
+        <span class="amount-symbol">¥</span>
+        <span class="amount-num" id="amountNum">0.00</span>
+      </div>
+      <div class="amount-hint">点击下面的数字输入金额</div>
+    </div>
+
+    <div class="keypad">
+      <div class="keypad-bar">
+        <button class="key key-del" data-key="del">⌫ 退格</button>
+        <button class="key key-clear" data-key="clear">清空</button>
+      </div>
+      <div class="keypad-grid">
+        <button class="key" data-key="7">7</button>
+        <button class="key" data-key="8">8</button>
+        <button class="key" data-key="9">9</button>
+        <button class="key" data-key="4">4</button>
+        <button class="key" data-key="5">5</button>
+        <button class="key" data-key="6">6</button>
+        <button class="key" data-key="1">1</button>
+        <button class="key" data-key="2">2</button>
+        <button class="key" data-key="3">3</button>
+        <button class="key" data-key="00">00</button>
+        <button class="key" data-key="0">0</button>
+        <button class="key" data-key=".">.</button>
+        <button class="key keypad-confirm" id="keypadConfirm">确定<br><span>下一步</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 用途选择（第二步） ============ -->
+  <section id="view-tag" class="view">
+    <header class="topbar">
+      <button class="icon-btn" onclick="goBackToInput()">‹ 返回</button>
+      <h1 class="topbar-title">这笔钱用在哪？</h1>
+      <span class="topbar-spacer"></span>
+    </header>
+
+    <div class="tag-stage">
+      <div class="tag-summary">
+        <label class="date-pick">
+          日期
+          <input type="date" id="tagDate">
+        </label>
+        <div class="tag-amount">¥<span id="tagAmount">0.00</span></div>
+      </div>
+
+      <div class="tag-grid" id="tagGrid"></div>
+
+      <div class="note-field">
+        <label for="noteInput">备注（可选）</label>
+        <textarea id="noteInput" rows="2" placeholder="比如：买了两斤苹果 / 给妈妈的生日红包…"></textarea>
+      </div>
+    </div>
+
+    <div class="bottom-bar">
+      <button class="big-btn" id="saveBtn" onclick="saveRecord()">保存这笔账</button>
+    </div>
+  </section>
+
+  <!-- ============ 明细（记录列表） ============ -->
+  <section id="view-records" class="view">
+    <header class="topbar">
+      <h1 class="topbar-title">明细</h1>
+      <button class="icon-btn" onclick="showSettings()">⚙ 设置</button>
+    </header>
+
+    <div class="records-stage">
+      <div class="records-summary">
+        <div>本月共 <span id="monthCount">0</span> 笔，支出</div>
+        <div class="records-total">¥<span id="monthTotal">0.00</span></div>
+      </div>
+      <div class="records-list" id="recordsList"></div>
+      <div class="empty-tip" id="recordsEmpty" hidden>
+        <div class="empty-emoji">📝</div>
+        还没有账目，去记第一笔吧！
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 设置 ============ -->
+  <section id="view-settings" class="view">
+    <header class="topbar">
+      <button class="icon-btn" onclick="showRecords()">‹ 返回</button>
+      <h1 class="topbar-title">设置</h1>
+      <span class="topbar-spacer"></span>
+    </header>
+
+    <div class="settings-stage">
+      <div class="setting-block">
+        <div class="setting-title">标签管理 <span class="setting-sub">点＋号添加你自己常用的标签</span></div>
+        <div class="tag-manage-list" id="tagManageList"></div>
+        <button class="add-tag-btn" onclick="openTagEditor()">＋ 添加标签</button>
+      </div>
+
+      <div class="setting-block">
+        <div class="setting-title">数据备份</div>
+        <button class="setting-row" onclick="exportJSON()">
+          <span>📦 导出备份文件</span>
+          <span class="setting-arrow">›</span>
+        </button>
+        <button class="setting-row" onclick="exportCSV()">
+          <span>📄 导出为表格（Excel可用）</span>
+          <span class="setting-arrow">›</span>
+        </button>
+        <button class="setting-row" onclick="document.getElementById('importFile').click()">
+          <span>📥 从备份文件恢复</span>
+          <span class="setting-arrow">›</span>
+        </button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden onchange="importJSON(event)">
+      </div>
+
+      <div class="setting-block">
+        <div class="setting-title">数据清理</div>
+        <button class="setting-row danger" onclick="clearAll()">
+          <span>🗑 清空所有账目</span>
+          <span class="setting-arrow">›</span>
+        </button>
+      </div>
+
+      <div class="setting-block">
+        <div class="setting-title">使用说明</div>
+        <div class="about-text">
+          · 账目数据只保存在<strong>这台手机的浏览器</strong>里，不经过任何服务器。<br>
+          · 微信里记的账和 Safari/百度浏览器里记的账是<strong>分开的</strong>，建议固定用一个入口。<br>
+          · 请定期<strong>导出备份</strong>，防止清缓存/换手机时丢失。<br>
+          · 换手机时：旧手机导出 → 新手机点"从备份文件恢复"。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 底部导航 ============ -->
+  <nav class="tabbar">
+    <button class="tab is-active" data-view="input" onclick="switchTab('input')">
+      <span class="tab-icon">✏️</span><span>记账</span>
+    </button>
+    <button class="tab" data-view="records" onclick="switchTab('records')">
+      <span class="tab-icon">📋</span><span>明细</span>
+    </button>
+    <button class="tab" data-view="settings" onclick="switchTab('settings')">
+      <span class="tab-icon">⚙️</span><span>设置</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- ============ 账目详情弹窗 ============ -->
+<div class="modal-mask" id="detailModal" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <span>账目详情</span>
+      <button class="icon-btn" onclick="closeModal('detailModal')">✕</button>
+    </div>
+    <div class="detail-body">
+      <div class="detail-emoji" id="detailEmoji">🍚</div>
+      <div class="detail-tag" id="detailTag">餐饮</div>
+      <div class="detail-amount">−¥<span id="detailAmount">0.00</span></div>
+      <div class="detail-row"><span>日期</span><span id="detailDate">-</span></div>
+      <div class="detail-row"><span>备注</span><span id="detailNote" class="detail-note">-</span></div>
+    </div>
+    <button class="big-btn danger-btn" id="detailDeleteBtn" onclick="deleteRecord()">删除这笔账</button>
+  </div>
+</div>
+
+<!-- ============ 标签编辑弹窗 ============ -->
+<div class="modal-mask" id="tagEditorModal" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <span id="tagEditorTitle">添加标签</span>
+      <button class="icon-btn" onclick="closeModal('tagEditorModal')">✕</button>
+    </div>
+    <div class="editor-body">
+      <label class="field-label" for="tagNameInput">标签名称</label>
+      <input type="text" id="tagNameInput" class="text-input" placeholder="比如：早餐 / 打车 / 买菜" maxlength="8">
+
+      <label class="field-label">选个图标</label>
+      <div class="emoji-picker" id="emojiPicker"></div>
+
+      <label class="field-label">选个颜色</label>
+      <div class="color-picker" id="colorPicker"></div>
+    </div>
+    <button class="big-btn" id="tagEditorSave" onclick="saveTagFromEditor()">保存</button>
+  </div>
+</div>
+
+<!-- ============ 通用确认弹窗 ============ -->
+<div class="modal-mask" id="confirmModal" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header"><span id="confirmTitle">确认</span></div>
+    <div class="confirm-text" id="confirmText">确定吗？</div>
+    <div class="confirm-btns">
+      <button class="big-btn ghost-btn" onclick="closeModal('confirmModal')">取消</button>
+      <button class="big-btn danger-btn" id="confirmOkBtn">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 提示气泡 -->
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

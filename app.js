@@ -1,0 +1,581 @@
+/* ============ 我的记账本 · 核心逻辑 ============ */
+(function () {
+  'use strict';
+
+  /* ---------- 数据存储 ---------- */
+  var LS_TAGS = 'jz_tags';
+  var LS_RECORDS = 'jz_records';
+  var LS_SETTINGS = 'jz_settings';
+
+  var DEFAULT_TAGS = [
+    { id: 't1', name: '餐饮', emoji: '🍚', color: '#FF9F0A' },
+    { id: 't2', name: '交通', emoji: '🚌', color: '#34C759' },
+    { id: 't3', name: '购物', emoji: '🛍️', color: '#FF2D55' },
+    { id: 't4', name: '日用', emoji: '🧻', color: '#5AC8FA' },
+    { id: 't5', name: '娱乐', emoji: '🎮', color: '#AF52DE' },
+    { id: 't6', name: '医疗', emoji: '💊', color: '#FF6B6B' },
+    { id: 't7', name: '居住', emoji: '🏠', color: '#A2845E' },
+    { id: 't8', name: '人情', emoji: '🧧', color: '#FF6482' },
+    { id: 't9', name: '其他', emoji: '📦', color: '#8E8E93' }
+  ];
+
+  var EMOJIS = ['🍚','🍜','☕','🥤','🍺','🍔','🚌','🚕','🚇','⛽','🛒','👕','💄','🧻','🏠','💡','📱','💊','🏥','🧧','🎁','🎂','🎬','🎮','📚','✈️','🐱','🐶','💼','🏋️','🎓','✂️','🪙','🧾','🔧','💇','🚬','🎫'];
+
+  var COLORS = ['#FF6B6B','#FF9F0A','#FFC53D','#34C759','#00C7BE','#5AC8FA','#4F6DF5','#AF52DE','#FF2D55','#A2845E','#8E8E93','#30D158'];
+
+  var tags = [];
+  var records = [];
+
+  function loadData() {
+    try {
+      tags = JSON.parse(localStorage.getItem(LS_TAGS)) || [];
+      records = JSON.parse(localStorage.getItem(LS_RECORDS)) || [];
+    } catch (e) {
+      tags = []; records = [];
+    }
+    if (!tags.length) {
+      tags = DEFAULT_TAGS.map(function (t) { return { id: t.id, name: t.name, emoji: t.emoji, color: t.color }; });
+      saveTags();
+    }
+    // 记录字段兜底
+    records = records.filter(function (r) { return r && typeof r.amount === 'number'; });
+  }
+
+  function saveTags() { localStorage.setItem(LS_TAGS, JSON.stringify(tags)); }
+  function saveRecords() { localStorage.setItem(LS_RECORDS, JSON.stringify(records)); }
+
+  function getSettings() {
+    try { return JSON.parse(localStorage.getItem(LS_SETTINGS)) || {}; }
+    catch (e) { return {}; }
+  }
+  function setSettings(s) { localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); }
+
+  /* ---------- 工具函数 ---------- */
+  function $(id) { return document.getElementById(id); }
+
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function toYMD(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+
+  function todayStr() { return toYMD(new Date()); }
+
+  function fmtMoney(n) {
+    return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function findTag(id) {
+    for (var i = 0; i < tags.length; i++) if (tags[i].id === id) return tags[i];
+    return null;
+  }
+
+  function findRecord(id) {
+    for (var i = 0; i < records.length; i++) if (records[i].id === id) return records[i];
+    return null;
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  function cnDateLine(d) {
+    return '今天 · ' + d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+
+  /* ---------- 金额输入 ---------- */
+  var amountStr = '';
+
+  function displayAmount() {
+    if (!amountStr) return '0.00';
+    var p = amountStr.split('.');
+    var intPart = p[0] ? parseInt(p[0], 10).toLocaleString('en-US') : '0';
+    return p.length > 1 ? intPart + '.' + p[1] : intPart;
+  }
+
+  function updateAmount() {
+    $('amountNum').textContent = displayAmount();
+  }
+
+  function keyInput(k) {
+    if (k === 'del') {
+      amountStr = amountStr.slice(0, -1);
+    } else if (k === 'clear') {
+      amountStr = '';
+    } else if (k === '.') {
+      if (!amountStr.includes('.')) amountStr = amountStr ? amountStr + '.' : '0.';
+    } else if (k === '00') {
+      if (amountStr === '') { amountStr = '0'; return; }
+      var p00 = amountStr.split('.');
+      if (p00.length === 1) {
+        if (p00[0].length < 8) amountStr = p00[0] + '00';
+      } else if (p00[1].length < 2) {
+        amountStr = p00[0] + '.' + p00[1] + '0'.repeat(2 - p00[1].length);
+      }
+    } else if (/^[0-9]$/.test(k)) {
+      var p = amountStr.split('.');
+      if (p.length === 2) {
+        if (p[1].length < 2) amountStr += k;
+      } else {
+        if (p[0].length < 8) {
+          amountStr = p[0] === '0' ? (k === '0' ? '0' : k) : amountStr + k;
+        }
+      }
+    }
+    updateAmount();
+  }
+
+  function parseAmount() {
+    var n = parseFloat(amountStr);
+    return (isFinite(n) && n > 0) ? Math.round(n * 100) / 100 : null;
+  }
+
+  /* ---------- 视图切换 ---------- */
+  var VIEWS = ['input', 'tag', 'records', 'settings'];
+
+  function switchTab(name) {
+    VIEWS.forEach(function (v) { $('view-' + v).classList.toggle('is-active', v === name); });
+    document.querySelectorAll('.tab').forEach(function (t) {
+      t.classList.toggle('is-active', t.dataset.view === name);
+    });
+    if (name === 'input') {
+      updateAmount();
+      $('inputDate').textContent = cnDateLine(new Date());
+      refreshMonthChip();
+    } else if (name === 'records') {
+      renderRecords();
+    } else if (name === 'settings') {
+      renderTagManage();
+    }
+    window.scrollTo(0, 0);
+  }
+
+  function showRecords() { switchTab('records'); }
+  function showSettings() { switchTab('settings'); }
+
+  function goBackToInput() {
+    switchTab('input');
+  }
+
+  /* ---------- 本月统计 ---------- */
+  function currentMonth() { return todayStr().slice(0, 7); }
+
+  function monthStats(ym) {
+    var total = 0, count = 0;
+    records.forEach(function (r) {
+      if (r.date && r.date.slice(0, 7) === ym) { total += r.amount; count++; }
+    });
+    return { total: total, count: count };
+  }
+
+  function refreshMonthChip() {
+    var s = monthStats(currentMonth());
+    $('monthTotalChip').textContent = '本月 ¥' + fmtMoney(s.total);
+  }
+
+  /* ---------- 进入用途选择 ---------- */
+  function onConfirmAmount() {
+    var n = parseAmount();
+    if (n === null) { toast('请输入金额，再点下一步'); return; }
+
+    // 默认选中上次用过的标签
+    var lastTagId = getSettings().lastTagId;
+    selectedTagId = findTag(lastTagId) ? lastTagId : (tags[0] ? tags[0].id : null);
+
+    $('tagAmount').textContent = fmtMoney(n);
+    var d = $('tagDate');
+    d.value = todayStr();
+    renderTagGrid();
+    $('noteInput').value = '';
+    switchTab('tag');
+  }
+
+  /* ---------- 标签选择 ---------- */
+  var selectedTagId = null;
+
+  function renderTagGrid() {
+    var grid = $('tagGrid');
+    grid.innerHTML = '';
+    tags.forEach(function (t) {
+      var btn = document.createElement('button');
+      btn.className = 'tag-tile' + (t.id === selectedTagId ? ' is-selected' : '');
+      btn.innerHTML = '<span class="tag-tile-emoji">' + t.emoji + '</span><span class="tag-tile-name">' + escapeHtml(t.name) + '</span>';
+      btn.onclick = function () { selectedTagId = t.id; renderTagGrid(); };
+      grid.appendChild(btn);
+    });
+    var addBtn = document.createElement('button');
+    addBtn.className = 'tag-tile tag-tile-add';
+    addBtn.innerHTML = '<span class="tag-tile-emoji">＋</span><span class="tag-tile-name">新建</span>';
+    addBtn.onclick = function () { openTagEditor(null); };
+    grid.appendChild(addBtn);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /* ---------- 保存一笔账 ---------- */
+  function saveRecord() {
+    var n = parseAmount();
+    if (n === null) { toast('金额不对，请回上一步检查'); return; }
+    var tag = findTag(selectedTagId);
+    if (!tag) { toast('请选一个用途标签'); return; }
+
+    var date = $('tagDate').value || todayStr();
+    var note = $('noteInput').value.trim();
+
+    records.push({
+      id: uid(),
+      amount: n,
+      tagId: tag.id,
+      note: note,
+      date: date,
+      createdAt: Date.now()
+    });
+    records.sort(function (a, b) { return b.date.localeCompare(a.date) || b.createdAt - a.createdAt; });
+    saveRecords();
+
+    var s = getSettings();
+    s.lastTagId = tag.id;
+    setSettings(s);
+
+    amountStr = '';
+    $('noteInput').value = '';
+    switchTab('input');
+    refreshMonthChip();
+    toast('已记一笔：' + tag.name + ' −¥' + fmtMoney(n));
+  }
+
+  /* ---------- 明细列表 ---------- */
+  function renderRecords() {
+    var list = $('recordsList');
+    list.innerHTML = '';
+
+    var s = monthStats(currentMonth());
+    $('monthCount').textContent = s.count;
+    $('monthTotal').textContent = fmtMoney(s.total);
+
+    var empty = $('recordsEmpty');
+    if (!records.length) {
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+
+    var byDay = {};
+    records.forEach(function (r) { (byDay[r.date] = byDay[r.date] || []).push(r); });
+
+    Object.keys(byDay).sort(function (a, b) { return b.localeCompare(a); }).forEach(function (day) {
+      var dayRecords = byDay[day];
+      var dayTotal = dayRecords.reduce(function (s2, r) { return s2 + r.amount; }, 0);
+
+      var block = document.createElement('div');
+      block.className = 'records-day';
+
+      var head = document.createElement('div');
+      head.className = 'records-day-header';
+      head.innerHTML = '<span>' + dayLabel(day) + '</span><span>−¥' + fmtMoney(dayTotal) + '</span>';
+      block.appendChild(head);
+
+      dayRecords.forEach(function (r) {
+        var item = document.createElement('div');
+        item.className = 'record-item';
+        var tag = findTag(r.tagId);
+        var emoji = tag ? tag.emoji : '🧾';
+        var color = (tag && tag.color) ? tag.color : '#8E8E93';
+        var tagName = tag ? tag.name : '已删除标签';
+        var note = r.note ? '<div class="record-note">' + escapeHtml(r.note) + '</div>' : '';
+        item.innerHTML =
+          '<div class="record-emoji" style="background:' + color + '1f;">' + emoji + '</div>' +
+          '<div class="record-info"><div class="record-tag">' + escapeHtml(tagName) + '</div>' + note + '</div>' +
+          '<div class="record-amount">−¥' + fmtMoney(r.amount) + '</div>';
+        item.onclick = function () { openDetail(r.id); };
+        block.appendChild(item);
+      });
+
+      list.appendChild(block);
+    });
+  }
+
+  function dayLabel(day) {
+    var today = new Date();
+    if (day === todayStr()) return '今天';
+    var yesterday = new Date(today.getTime() - 86400000);
+    if (day === toYMD(yesterday)) return '昨天';
+    var d = new Date(day + 'T00:00:00');
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 · 周' + '日一二三四五六'[d.getDay()];
+  }
+
+  /* ---------- 账目详情 ---------- */
+  var currentRecordId = null;
+
+  function openDetail(id) {
+    var r = findRecord(id);
+    if (!r) return;
+    currentRecordId = id;
+    var tag = findTag(r.tagId);
+    $('detailEmoji').textContent = tag ? tag.emoji : '🧾';
+    $('detailTag').textContent = tag ? tag.name : '已删除标签';
+    $('detailAmount').textContent = fmtMoney(r.amount);
+    $('detailDate').textContent = formatDateCN(r.date);
+    $('detailNote').textContent = r.note || '（无备注）';
+    $('detailModal').hidden = false;
+  }
+
+  function formatDateCN(day) {
+    var d = new Date(day + 'T00:00:00');
+    return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+
+  function deleteRecord() {
+    if (!currentRecordId) return;
+    closeModal('detailModal');
+    confirmAction('删除这笔账', '删除后无法恢复，确定要删除这笔 ' + fmtMoney(findRecord(currentRecordId).amount) + ' 元的账吗？', '删除', function () {
+      records = records.filter(function (r) { return r.id !== currentRecordId; });
+      saveRecords();
+      renderRecords();
+      refreshMonthChip();
+      toast('已删除');
+    });
+  }
+
+  /* ---------- 标签编辑 ---------- */
+  var editingTagId = null;
+  var pickedEmoji = '🧾';
+  var pickedColor = COLORS[0];
+
+  function openTagEditor(editId) {
+    editingTagId = editId || null;
+    if (editId) {
+      var t = findTag(editId);
+      if (!t) return;
+      pickedEmoji = t.emoji;
+      pickedColor = t.color;
+      $('tagNameInput').value = t.name;
+      $('tagEditorTitle').textContent = '编辑标签';
+    } else {
+      pickedEmoji = '🧾';
+      pickedColor = COLORS[0];
+      $('tagNameInput').value = '';
+      $('tagEditorTitle').textContent = '添加标签';
+    }
+    renderEmojiPicker();
+    renderColorPicker();
+    $('tagEditorModal').hidden = false;
+    setTimeout(function () { $('tagNameInput').focus(); }, 80);
+  }
+
+  function renderEmojiPicker() {
+    var box = $('emojiPicker');
+    box.innerHTML = '';
+    EMOJIS.forEach(function (e) {
+      var b = document.createElement('button');
+      b.textContent = e;
+      if (e === pickedEmoji) b.className = 'is-selected';
+      b.onclick = function () { pickedEmoji = e; renderEmojiPicker(); };
+      box.appendChild(b);
+    });
+  }
+
+  function renderColorPicker() {
+    var box = $('colorPicker');
+    box.innerHTML = '';
+    COLORS.forEach(function (c) {
+      var b = document.createElement('button');
+      b.style.background = c;
+      if (c === pickedColor) b.className = 'is-selected';
+      b.onclick = function () { pickedColor = c; renderColorPicker(); };
+      box.appendChild(b);
+    });
+  }
+
+  function saveTagFromEditor() {
+    var name = $('tagNameInput').value.trim();
+    if (!name) { toast('请输入标签名称'); return; }
+    if (name.length > 8) { toast('标签名称最多 8 个字'); return; }
+
+    if (editingTagId) {
+      var t = findTag(editingTagId);
+      if (t) { t.name = name; t.emoji = pickedEmoji; t.color = pickedColor; }
+    } else {
+      tags.push({ id: uid(), name: name, emoji: pickedEmoji, color: pickedColor });
+    }
+    saveTags();
+    closeModal('tagEditorModal');
+    renderTagManage();
+    renderTagGrid();
+    if (selectedTagId === null) selectedTagId = tags[0] ? tags[0].id : null;
+    toast('标签已保存');
+  }
+
+  function renderTagManage() {
+    var list = $('tagManageList');
+    list.innerHTML = '';
+    tags.forEach(function (t) {
+      var chip = document.createElement('span');
+      chip.className = 'manage-tag';
+      chip.innerHTML = t.emoji + ' ' + escapeHtml(t.name) + '<button title="删除">✕</button>';
+      chip.onclick = function (ev) {
+        if (ev.target.tagName === 'BUTTON') {
+          ev.stopPropagation();
+          confirmAction('删除标签', '删除「' + t.name + '」后，用这笔标签记过的账还在，只是显示为「已删除标签」。确定删除吗？', '删除', function () {
+            tags = tags.filter(function (x) { return x.id !== t.id; });
+            if (selectedTagId === t.id) selectedTagId = null;
+            saveTags();
+            renderTagManage();
+            renderTagGrid();
+            toast('已删除标签');
+          });
+        } else {
+          openTagEditor(t.id);
+        }
+      };
+      list.appendChild(chip);
+    });
+  }
+
+  /* ---------- 弹窗 ---------- */
+  function closeModal(id) { $(id).hidden = true; }
+
+  function confirmAction(title, text, okLabel, onOk) {
+    $('confirmTitle').textContent = title;
+    $('confirmText').textContent = text;
+    $('confirmOkBtn').textContent = okLabel;
+    $('confirmOkBtn').onclick = function () { closeModal('confirmModal'); onOk(); };
+    $('confirmModal').hidden = false;
+  }
+
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { el.hidden = true; }, 2000);
+  }
+
+  /* ---------- 导出 / 导入 / 清空 ---------- */
+  function download(filename, text, mime) {
+    var blob = new Blob([text], { type: mime || 'application/octet-stream' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function stamp() {
+    var d = new Date();
+    return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes());
+  }
+
+  function exportJSON() {
+    var data = { app: '我的记账本', version: 1, exportedAt: new Date().toISOString(), tags: tags, records: records };
+    download('记账本备份-' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json');
+    toast('备份文件已导出');
+  }
+
+  function exportCSV() {
+    var BOM = '﻿';
+    var rows = ['日期,金额,用途,备注'];
+    records.forEach(function (r) {
+      var tag = findTag(r.tagId);
+      var name = tag ? tag.name : '已删除标签';
+      rows.push([r.date, r.amount, name, '"' + String(r.note || '').replace(/"/g, '""') + '"'].join(','));
+    });
+    download('记账本明细-' + stamp() + '.csv', BOM + rows.join('\r\n'), 'text/csv;charset=utf-8');
+    toast('表格文件已导出');
+  }
+
+  function importJSON(ev) {
+    var file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var data;
+      try { data = JSON.parse(reader.result); }
+      catch (e) { toast('文件格式不对，无法读取'); return; }
+
+      var newTags = Array.isArray(data.tags) ? data.tags : [];
+      var newRecords = Array.isArray(data.records) ? data.records : [];
+      if (!newTags.length && !newRecords.length) { toast('这个文件里没有账目数据'); return; }
+
+      confirmAction('恢复备份', '导入会覆盖当前这台浏览器里的所有数据。确定继续吗？', '覆盖导入', function () {
+        tags = newTags.map(function (t) { return { id: t.id || uid(), name: String(t.name || '未命名'), emoji: t.emoji || '🧾', color: t.color || '#8E8E93' }; });
+        records = newRecords.filter(function (r) { return r && typeof r.amount === 'number'; })
+          .map(function (r) { return { id: r.id || uid(), amount: r.amount, tagId: r.tagId || '', note: r.note || '', date: r.date || todayStr(), createdAt: r.createdAt || Date.now() }; });
+        if (!tags.length) tags = DEFAULT_TAGS.map(function (t) { return { id: t.id, name: t.name, emoji: t.emoji, color: t.color }; });
+        saveTags(); saveRecords();
+        selectedTagId = tags[0] ? tags[0].id : null;
+        switchTab('records');
+        refreshMonthChip();
+        toast('已恢复，共 ' + records.length + ' 笔账');
+      });
+    };
+    reader.readAsText(file);
+  }
+
+  function clearAll() {
+    confirmAction('清空所有账目', '将删除全部 ' + records.length + ' 笔记录（标签保留）。删除后无法恢复！建议先导出备份。确定清空吗？', '全部清空', function () {
+      records = [];
+      saveRecords();
+      renderRecords();
+      refreshMonthChip();
+      toast('已清空');
+    });
+  }
+
+  /* ---------- 键盘事件 ---------- */
+  document.addEventListener('click', function (ev) {
+    var k = ev.target.closest('.key');
+    if (!k) return;
+    var key = k.dataset.key;
+    if (key) keyInput(key);
+    else if (k.id === 'keypadConfirm') onConfirmAmount();
+  });
+
+  // 物理键盘支持（调试用）
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key >= '0' && ev.key <= '9') { keyInput(ev.key); ev.preventDefault(); }
+    else if (ev.key === '.') { keyInput('.'); ev.preventDefault(); }
+    else if (ev.key === 'Backspace') { keyInput('del'); ev.preventDefault(); }
+    else if (ev.key === 'Enter') { onConfirmAmount(); }
+  });
+
+  /* ---------- 初始化 ---------- */
+  function init() {
+    loadData();
+    selectedTagId = getSettings().lastTagId && findTag(getSettings().lastTagId) ? getSettings().lastTagId : (tags[0] ? tags[0].id : null);
+    updateAmount();
+    $('inputDate').textContent = cnDateLine(new Date());
+    refreshMonthChip();
+
+    // 注册离线支持
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+      try {
+        navigator.serviceWorker.register('sw.js').catch(function () {});
+      } catch (e) {}
+    }
+  }
+
+  init();
+
+  // 暴露给 HTML 内联事件使用
+  window.switchTab = switchTab;
+  window.showRecords = showRecords;
+  window.showSettings = showSettings;
+  window.goBackToInput = goBackToInput;
+  window.saveRecord = saveRecord;
+  window.openDetail = openDetail;
+  window.deleteRecord = deleteRecord;
+  window.openTagEditor = openTagEditor;
+  window.saveTagFromEditor = saveTagFromEditor;
+  window.exportJSON = exportJSON;
+  window.exportCSV = exportCSV;
+  window.importJSON = importJSON;
+  window.clearAll = clearAll;
+  window.closeModal = closeModal;
+})();
