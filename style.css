@@ -69,6 +69,7 @@ body {
   border-radius: 999px;
   font-weight: 600;
 }
+.sync-badge { font-size: 15px; line-height: 1; }
 .topbar-spacer { width: 56px; }
 .icon-btn {
   background: none;
