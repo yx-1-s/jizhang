@@ -21,7 +21,10 @@
   <section id="view-input" class="view is-active">
     <header class="topbar">
       <h1 class="topbar-title">记账</h1>
-      <div class="topbar-chip" id="monthTotalChip" onclick="showRecords()">本月 ¥0.00</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span id="syncBadge" class="sync-badge" title="云同步状态" hidden></span>
+        <div class="topbar-chip" id="monthTotalChip" onclick="showRecords()">本月 ¥0.00</div>
+      </div>
     </header>
 
     <div class="input-stage">
@@ -116,6 +119,21 @@
 
     <div class="settings-stage">
       <div class="setting-block">
+        <div class="setting-title">云同步 <span class="setting-sub" id="syncStatusText">（未开启）</span></div>
+        <div class="about-text" style="margin-bottom:8px">开启后，账目自动存到你的 GitHub 私有仓库，任何手机/浏览器打开都是同一份账。私有仓库会自动创建，你只需填一个 GitHub 令牌。</div>
+        <label class="field-label" for="syncOwner">GitHub 用户名</label>
+        <input type="text" id="syncOwner" class="text-input" placeholder="yx-1-s">
+        <label class="field-label" for="syncRepo">数据仓库名（自动创建私有仓库）</label>
+        <input type="text" id="syncRepo" class="text-input" placeholder="jizhang-data">
+        <label class="field-label" for="syncToken">访问令牌（Token，怎么创建见 README）</label>
+        <input type="password" id="syncToken" class="text-input" placeholder="ghp_...">
+        <button class="setting-row" onclick="saveSyncSettings()"><span>💾 保存云同步设置</span><span class="setting-arrow">›</span></button>
+        <button class="setting-row" onclick="syncNow()"><span>☁️ 立即上传到云端</span><span class="setting-arrow">›</span></button>
+        <button class="setting-row" onclick="pullNow()"><span>📥 从云端拉取（换新手机时用）</span><span class="setting-arrow">›</span></button>
+        <button class="setting-row danger" onclick="disableSync()"><span>🚫 关闭云同步</span><span class="setting-arrow">›</span></button>
+      </div>
+
+      <div class="setting-block">
         <div class="setting-title">标签管理 <span class="setting-sub">点＋号添加你自己常用的标签</span></div>
         <div class="tag-manage-list" id="tagManageList"></div>
         <button class="add-tag-btn" onclick="openTagEditor()">＋ 添加标签</button>
@@ -149,10 +167,10 @@
       <div class="setting-block">
         <div class="setting-title">使用说明</div>
         <div class="about-text">
-          · 账目数据只保存在<strong>这台手机的浏览器</strong>里，不经过任何服务器。<br>
-          · 微信里记的账和 Safari/百度浏览器里记的账是<strong>分开的</strong>，建议固定用一个入口。<br>
-          · 请定期<strong>导出备份</strong>，防止清缓存/换手机时丢失。<br>
-          · 换手机时：旧手机导出 → 新手机点"从备份文件恢复"。
+          · 开启云同步后，账目自动存在你的 GitHub 私有仓库，微信 / Safari / 换手机看到的都是同一份账。<br>
+          · 没开云同步时，账目只存在这台手机的浏览器里，微信和 Safari 的账是分开的。<br>
+          · 无论是否开云同步，都建议定期<strong>导出备份</strong>。<br>
+          · 换手机：新手机打开同一网址 → 设置 → 云同步 → 从云端拉取。
         </div>
       </div>
     </div>
