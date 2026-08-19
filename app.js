@@ -144,6 +144,7 @@
       renderRecords();
     } else if (name === 'settings') {
       renderTagManage();
+      renderSyncSettings();
     }
     window.scrollTo(0, 0);
   }
@@ -238,6 +239,7 @@
     var s = getSettings();
     s.lastTagId = tag.id;
     setSettings(s);
+    markDirty();
 
     amountStr = '';
     $('noteInput').value = '';
@@ -333,6 +335,7 @@
     confirmAction('删除这笔账', '删除后无法恢复，确定要删除这笔 ' + fmtMoney(findRecord(currentRecordId).amount) + ' 元的账吗？', '删除', function () {
       records = records.filter(function (r) { return r.id !== currentRecordId; });
       saveRecords();
+      markDirty();
       renderRecords();
       refreshMonthChip();
       toast('已删除');
@@ -401,6 +404,7 @@
       tags.push({ id: uid(), name: name, emoji: pickedEmoji, color: pickedColor });
     }
     saveTags();
+    markDirty();
     closeModal('tagEditorModal');
     renderTagManage();
     renderTagGrid();
@@ -422,6 +426,7 @@
             tags = tags.filter(function (x) { return x.id !== t.id; });
             if (selectedTagId === t.id) selectedTagId = null;
             saveTags();
+            markDirty();
             renderTagManage();
             renderTagGrid();
             toast('已删除标签');
@@ -509,6 +514,7 @@
           .map(function (r) { return { id: r.id || uid(), amount: r.amount, tagId: r.tagId || '', note: r.note || '', date: r.date || todayStr(), createdAt: r.createdAt || Date.now() }; });
         if (!tags.length) tags = DEFAULT_TAGS.map(function (t) { return { id: t.id, name: t.name, emoji: t.emoji, color: t.color }; });
         saveTags(); saveRecords();
+        markDirty();
         selectedTagId = tags[0] ? tags[0].id : null;
         switchTab('records');
         refreshMonthChip();
@@ -522,10 +528,213 @@
     confirmAction('清空所有账目', '将删除全部 ' + records.length + ' 笔记录（标签保留）。删除后无法恢复！建议先导出备份。确定清空吗？', '全部清空', function () {
       records = [];
       saveRecords();
+      markDirty();
       renderRecords();
       refreshMonthChip();
       toast('已清空');
     });
+  }
+
+  /* ---------- 云同步（GitHub 私有仓库存储） ---------- */
+  var SYNC_DEBOUNCE_MS = 1500;
+  var syncTimer = null;
+
+  function syncCfg() {
+    var s = getSettings();
+    return { token: s.syncToken || '', owner: s.syncOwner || 'yx-1-s', repo: s.syncRepo || '' };
+  }
+
+  function syncConfigured() {
+    var c = syncCfg();
+    return !!c.token && !!c.repo;
+  }
+
+  function authHeaders() {
+    return {
+      'Authorization': 'Bearer ' + syncCfg().token,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    };
+  }
+
+  function b64encodeUtf8(str) { return btoa(unescape(encodeURIComponent(str))); }
+  function b64decodeUtf8(b64) { return decodeURIComponent(escape(atob(b64))); }
+
+  function buildSyncDoc() {
+    var s = getSettings();
+    return { app: '我的记账本', version: 1, updatedAt: s.updatedAt || Date.now(), tags: tags, records: records };
+  }
+
+  function setSyncStatus(state) {
+    var badge = $('syncBadge');
+    var text = $('syncStatusText');
+    if (!badge || !text) return;
+    var map = {
+      off: ['', '（未开启）'],
+      syncing: ['🔄', '同步中…'],
+      ok: ['☁️', '已同步'],
+      error: ['⚠️', '同步失败，检查网络或设置']
+    };
+    var m = map[state] || map.off;
+    badge.textContent = m[0];
+    badge.hidden = state === 'off';
+    text.textContent = m[1];
+  }
+
+  function syncGet() {
+    var c = syncCfg();
+    var url = 'https://api.github.com/repos/' + c.owner + '/' + c.repo + '/contents/data.json';
+    return fetch(url, { method: 'GET', headers: authHeaders() }).then(function (res) {
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error('sync GET ' + res.status);
+      return res.json();
+    }).then(function (obj) {
+      if (!obj) return null;
+      var raw = b64decodeUtf8(String(obj.content).replace(/\s+/g, ''));
+      return { data: JSON.parse(raw), sha: obj.sha };
+    });
+  }
+
+  function syncPush() {
+    var c = syncCfg();
+    if (!syncConfigured()) return Promise.resolve(false);
+    setSyncStatus('syncing');
+    return syncGet().then(function (remote) {
+      var body = buildSyncDoc();
+      var payload = {
+        message: '记账本同步 ' + new Date().toLocaleString('zh-CN'),
+        content: b64encodeUtf8(JSON.stringify(body))
+      };
+      if (remote && remote.sha) payload.sha = remote.sha;
+      return fetch('https://api.github.com/repos/' + c.owner + '/' + c.repo + '/contents/data.json', {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify(payload)
+      });
+    }).then(function (res) {
+      if (!res || !res.ok) throw new Error('sync PUT ' + (res && res.status));
+      setSyncStatus('ok');
+      return true;
+    }).catch(function (e) {
+      console.log('sync push error', e);
+      setSyncStatus('error');
+      return false;
+    });
+  }
+
+  function scheduleSync() {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () { syncPush(); }, SYNC_DEBOUNCE_MS);
+  }
+
+  function markDirty() {
+    var s = getSettings();
+    s.updatedAt = Date.now();
+    setSettings(s);
+    if (syncConfigured()) scheduleSync();
+  }
+
+  function refreshAll() {
+    var active = document.querySelector('.view.is-active');
+    var id = active ? active.id : 'view-input';
+    if (id === 'view-input') { refreshMonthChip(); updateAmount(); }
+    else if (id === 'view-records') { renderRecords(); }
+    else if (id === 'view-settings') { renderTagManage(); renderSyncSettings(); }
+    else if (id === 'view-tag') { renderTagGrid(); }
+  }
+
+  function ensureSyncRepo() {
+    var c = syncCfg();
+    if (!c.token || !c.repo) return Promise.resolve(false);
+    return fetch('https://api.github.com/repos/' + c.owner + '/' + c.repo, { headers: authHeaders() })
+      .then(function (res) {
+        if (res.status === 404) {
+          return fetch('https://api.github.com/user/repos', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ name: c.repo, private: true, description: '我的记账本数据仓库（自动创建）' })
+          });
+        }
+        return res;
+      })
+      .then(function (res) { return res.ok || res.status === 201; })
+      .catch(function () { return false; });
+  }
+
+  function tryAutoSync() {
+    if (!syncConfigured()) { setSyncStatus('off'); return; }
+    setSyncStatus('syncing');
+    ensureSyncRepo().then(function (ok) {
+      if (!ok) { setSyncStatus('error'); toast('云仓库准备失败，请检查令牌权限'); return; }
+      return syncGet().then(function (remote) {
+        if (!remote) return syncPush();
+        var localT = getSettings().updatedAt || 0;
+        var remoteT = remote.data.updatedAt || 0;
+        if (remoteT > localT) {
+          tags = remote.data.tags || [];
+          records = remote.data.records || [];
+          saveTags(); saveRecords();
+          var s = getSettings(); s.updatedAt = remoteT; setSettings(s);
+          selectedTagId = tags[0] ? tags[0].id : null;
+          refreshAll();
+          setSyncStatus('ok');
+          toast('已从云端同步最新账目');
+        } else {
+          return syncPush();
+        }
+      });
+    }).catch(function () { setSyncStatus('error'); });
+  }
+
+  function saveSyncSettings() {
+    var s = getSettings();
+    s.syncOwner = ($('syncOwner').value || 'yx-1-s').trim();
+    s.syncRepo = $('syncRepo').value.trim();
+    s.syncToken = $('syncToken').value.trim();
+    setSettings(s);
+    renderSyncSettings();
+    toast('同步设置已保存');
+    tryAutoSync();
+  }
+
+  function syncNow() {
+    if (!syncConfigured()) { toast('请先填写并保存同步设置'); return; }
+    syncPush().then(function (ok) {
+      toast(ok ? '已上传到云端' : '上传失败，检查网络');
+    });
+  }
+
+  function pullNow() {
+    if (!syncConfigured()) { toast('请先填写并保存同步设置'); return; }
+    setSyncStatus('syncing');
+    syncGet().then(function (remote) {
+      if (!remote) { toast('云端还没有数据'); setSyncStatus('off'); return; }
+      tags = remote.data.tags || [];
+      records = remote.data.records || [];
+      saveTags(); saveRecords();
+      var s = getSettings(); s.updatedAt = remote.data.updatedAt || Date.now(); setSettings(s);
+      selectedTagId = tags[0] ? tags[0].id : null;
+      refreshAll();
+      setSyncStatus('ok');
+      toast('已从云端拉取 ' + records.length + ' 笔账');
+    }).catch(function () { setSyncStatus('error'); toast('拉取失败，检查网络'); });
+  }
+
+  function disableSync() {
+    var s = getSettings();
+    delete s.syncToken; delete s.syncRepo; delete s.syncOwner;
+    setSettings(s);
+    renderSyncSettings();
+    setSyncStatus('off');
+    toast('已关闭云同步');
+  }
+
+  function renderSyncSettings() {
+    var s = getSettings();
+    $('syncOwner').value = s.syncOwner || 'yx-1-s';
+    $('syncRepo').value = s.syncRepo || '';
+    $('syncToken').value = s.syncToken || '';
+    setSyncStatus(syncConfigured() ? 'ok' : 'off');
   }
 
   /* ---------- 键盘事件 ---------- */
@@ -537,8 +746,10 @@
     else if (k.id === 'keypadConfirm') onConfirmAmount();
   });
 
-  // 物理键盘支持（调试用）
+  // 物理键盘支持（调试用）。注意：在输入框/备注框里打字时不能拦截，否则删除键会失效
   document.addEventListener('keydown', function (ev) {
+    var el = ev.target;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
     if (ev.key >= '0' && ev.key <= '9') { keyInput(ev.key); ev.preventDefault(); }
     else if (ev.key === '.') { keyInput('.'); ev.preventDefault(); }
     else if (ev.key === 'Backspace') { keyInput('del'); ev.preventDefault(); }
@@ -559,6 +770,8 @@
         navigator.serviceWorker.register('sw.js').catch(function () {});
       } catch (e) {}
     }
+
+    tryAutoSync();
   }
 
   init();
@@ -578,4 +791,8 @@
   window.importJSON = importJSON;
   window.clearAll = clearAll;
   window.closeModal = closeModal;
+  window.saveSyncSettings = saveSyncSettings;
+  window.syncNow = syncNow;
+  window.pullNow = pullNow;
+  window.disableSync = disableSync;
 })();
