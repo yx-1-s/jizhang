@@ -98,10 +98,31 @@
 
     <div class="records-stage">
       <div class="records-summary">
-        <div>本月共 <span id="monthCount">0</span> 笔，支出</div>
+        <div><span id="monthTitle">本月</span>共 <span id="monthCount">0</span> 笔</div>
         <div class="records-total">¥<span id="monthTotal">0.00</span></div>
       </div>
-      <div class="records-list" id="recordsList"></div>
+
+      <div class="calendar-card">
+        <div class="cal-nav">
+          <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
+          <div class="cal-title" id="calTitle">--</div>
+          <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+        </div>
+        <div class="cal-weekdays">
+          <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+      </div>
+
+      <div class="day-section">
+        <div class="day-head">
+          <span id="dayTitle">--</span>
+          <span id="dayTotal"></span>
+        </div>
+        <div class="day-records" id="dayRecords"></div>
+        <div class="day-empty" id="dayEmpty" hidden>这一天没有账目</div>
+      </div>
+
       <div class="empty-tip" id="recordsEmpty" hidden>
         <div class="empty-emoji">📝</div>
         还没有账目，去记第一笔吧！
@@ -130,6 +151,12 @@
         <button class="setting-row" onclick="saveSyncSettings()"><span>💾 保存云同步设置</span><span class="setting-arrow">›</span></button>
         <button class="setting-row" onclick="syncNow()"><span>☁️ 立即上传到云端</span><span class="setting-arrow">›</span></button>
         <button class="setting-row" onclick="pullNow()"><span>📥 从云端拉取（换新手机时用）</span><span class="setting-arrow">›</span></button>
+        <button class="setting-row" onclick="generateSyncLink()"><span>🔗 生成同步链接（换微信账号免重填）</span><span class="setting-arrow">›</span></button>
+        <div class="sync-link-box" id="syncLinkBox" hidden>
+          <div class="about-text" style="margin-bottom:6px">把这个链接发给你自己的另一个微信，打开后就会自动配好云同步，不用再填令牌。</div>
+          <input type="text" id="syncLink" class="text-input" readonly onclick="this.select()">
+          <button class="setting-row" onclick="copySyncLink()"><span>📋 复制这个链接</span><span class="setting-arrow">›</span></button>
+        </div>
         <button class="setting-row danger" onclick="disableSync()"><span>🚫 关闭云同步</span><span class="setting-arrow">›</span></button>
       </div>
 
