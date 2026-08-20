@@ -584,20 +584,23 @@
   function syncGet() {
     var c = syncCfg();
     var url = 'https://api.github.com/repos/' + c.owner + '/' + c.repo + '/contents/data.json';
-    return fetch(url, { method: 'GET', headers: authHeaders() }).then(function (res) {
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error('sync GET ' + res.status);
-      return res.json();
-    }).then(function (obj) {
-      if (!obj) return null;
-      var raw = b64decodeUtf8(String(obj.content).replace(/\s+/g, ''));
-      return { data: JSON.parse(raw), sha: obj.sha };
-    });
+    return fetch(url, { method: 'GET', headers: authHeaders() })
+      .catch(function () { var e = new Error('network'); e.code = '网络'; throw e; })
+      .then(function (res) {
+        if (res.status === 404) return null;
+        if (!res.ok) { var e = new Error('http' + res.status); e.code = res.status; throw e; }
+        return res.json();
+      })
+      .then(function (obj) {
+        if (!obj) return null;
+        var raw = b64decodeUtf8(String(obj.content).replace(/\s+/g, ''));
+        return { data: JSON.parse(raw), sha: obj.sha };
+      });
   }
 
   function syncPush() {
     var c = syncCfg();
-    if (!syncConfigured()) return Promise.resolve(false);
+    if (!syncConfigured()) return Promise.resolve({ ok: false, code: '未配置' });
     setSyncStatus('syncing');
     return syncGet().then(function (remote) {
       var body = buildSyncDoc();
@@ -610,15 +613,15 @@
         method: 'PUT',
         headers: authHeaders(),
         body: JSON.stringify(payload)
-      });
+      }).catch(function () { var e = new Error('network'); e.code = '网络'; throw e; });
     }).then(function (res) {
-      if (!res || !res.ok) throw new Error('sync PUT ' + (res && res.status));
+      if (!res || !res.ok) { var e = new Error('http' + (res && res.status)); e.code = res ? res.status : '网络'; throw e; }
       setSyncStatus('ok');
-      return true;
+      return { ok: true };
     }).catch(function (e) {
       console.log('sync push error', e);
       setSyncStatus('error');
-      return false;
+      return { ok: false, code: (e && e.code) || '网络' };
     });
   }
 
@@ -645,7 +648,7 @@
 
   function ensureSyncRepo() {
     var c = syncCfg();
-    if (!c.token || !c.repo) return Promise.resolve(false);
+    if (!c.token || !c.repo) return Promise.resolve({ ok: false, code: '未配置' });
     return fetch('https://api.github.com/repos/' + c.owner + '/' + c.repo, { headers: authHeaders() })
       .then(function (res) {
         if (res.status === 404) {
@@ -657,31 +660,47 @@
         }
         return res;
       })
-      .then(function (res) { return res.ok || res.status === 201; })
-      .catch(function () { return false; });
+      .then(function (res) { return { ok: res.ok || res.status === 201, code: res.status }; })
+      .catch(function () { return { ok: false, code: '网络' }; });
+  }
+
+  function syncHint(code) {
+    var map = {
+      401: '令牌无效或没复制完整，请重新生成并整串复制',
+      403: '令牌权限不够，生成时要勾选 repo',
+      404: '用户名或仓库名不对',
+      422: '仓库名已被占用，换一个名字',
+      网络: '连不上 GitHub，请检查网络或换 Safari 试',
+      未配置: '还没填令牌'
+    };
+    return map[code] || ('出错了（' + code + '）');
   }
 
   function tryAutoSync() {
     if (!syncConfigured()) { setSyncStatus('off'); return; }
     setSyncStatus('syncing');
-    ensureSyncRepo().then(function (ok) {
-      if (!ok) { setSyncStatus('error'); toast('云仓库准备失败，请检查令牌权限'); return; }
+    ensureSyncRepo().then(function (r) {
+      if (!r.ok) { setSyncStatus('error'); toast('云仓库准备失败：' + syncHint(r.code)); return; }
       return syncGet().then(function (remote) {
-        if (!remote) return syncPush();
         var localT = getSettings().updatedAt || 0;
-        var remoteT = remote.data.updatedAt || 0;
-        if (remoteT > localT) {
-          tags = remote.data.tags || [];
-          records = remote.data.records || [];
-          saveTags(); saveRecords();
-          var s = getSettings(); s.updatedAt = remoteT; setSettings(s);
-          selectedTagId = tags[0] ? tags[0].id : null;
-          refreshAll();
-          setSyncStatus('ok');
-          toast('已从云端同步最新账目');
-        } else {
-          return syncPush();
+        var remoteT = remote ? (remote.data.updatedAt || 0) : 0;
+        if (!remote || remoteT <= localT) {
+          return syncPush().then(function (p) {
+            if (!p.ok) { setSyncStatus('error'); toast('同步失败：' + syncHint(p.code)); }
+            else setSyncStatus('ok');
+          });
         }
+        tags = remote.data.tags || [];
+        records = remote.data.records || [];
+        saveTags(); saveRecords();
+        var s = getSettings(); s.updatedAt = remoteT; setSettings(s);
+        selectedTagId = tags[0] ? tags[0].id : null;
+        refreshAll();
+        setSyncStatus('ok');
+        toast('已从云端同步最新账目');
+      }).catch(function (e) {
+        setSyncStatus('error');
+        toast('同步失败：' + syncHint(e && e.code));
       });
     }).catch(function () { setSyncStatus('error'); });
   }
@@ -699,8 +718,8 @@
 
   function syncNow() {
     if (!syncConfigured()) { toast('请先填写并保存同步设置'); return; }
-    syncPush().then(function (ok) {
-      toast(ok ? '已上传到云端' : '上传失败，检查网络');
+    syncPush().then(function (p) {
+      toast(p.ok ? '已上传到云端' : '上传失败：' + syncHint(p.code));
     });
   }
 
@@ -717,7 +736,10 @@
       refreshAll();
       setSyncStatus('ok');
       toast('已从云端拉取 ' + records.length + ' 笔账');
-    }).catch(function () { setSyncStatus('error'); toast('拉取失败，检查网络'); });
+    }).catch(function (e) {
+      setSyncStatus('error');
+      toast('拉取失败：' + syncHint(e && e.code));
+    });
   }
 
   function disableSync() {
