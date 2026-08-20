@@ -1,5 +1,5 @@
 /* 我的记账本 · Service Worker（离线缓存） */
-var CACHE = 'jizhang-v1';
+var CACHE = 'jizhang-v2';
 var ASSETS = [
   './',
   'index.html',
