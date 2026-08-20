@@ -162,7 +162,7 @@
   function monthStats(ym) {
     var total = 0, count = 0;
     records.forEach(function (r) {
-      if (r.date && r.date.slice(0, 7) === ym) { total += r.amount; count++; }
+      if (!r.deleted && r.date && r.date.slice(0, 7) === ym) { total += r.amount; count++; }
     });
     return { total: total, count: count };
   }
@@ -231,7 +231,8 @@
       tagId: tag.id,
       note: note,
       date: date,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     });
     records.sort(function (a, b) { return b.date.localeCompare(a.date) || b.createdAt - a.createdAt; });
     saveRecords();
@@ -248,64 +249,132 @@
     toast('已记一笔：' + tag.name + ' −¥' + fmtMoney(n));
   }
 
-  /* ---------- 明细列表 ---------- */
-  function renderRecords() {
-    var list = $('recordsList');
-    list.innerHTML = '';
+  /* ---------- 明细：月历 + 当天明细 ---------- */
+  var calYear = null, calMonth = null, selectedDay = null;
 
-    var s = monthStats(currentMonth());
+  function renderRecords() {
+    var today = new Date();
+    if (calYear == null) { calYear = today.getFullYear(); calMonth = today.getMonth(); }
+    var ym = calYear + '-' + pad(calMonth + 1);
+
+    // 默认选中的天：本月有记录就选最近一笔，没有就选今天；今天也不在本月就选 1 号
+    if (!selectedDay || selectedDay.slice(0, 7) !== ym) {
+      var todayDs = todayStr();
+      var latest = '';
+      visibleRecords().forEach(function (r) {
+        if (r.date && r.date.slice(0, 7) === ym && r.date > latest) latest = r.date;
+      });
+      if (latest) selectedDay = latest;
+      else if (todayDs.slice(0, 7) === ym) selectedDay = todayDs;
+      else selectedDay = ym + '-01';
+    }
+
+    var s = monthStats(ym);
     $('monthCount').textContent = s.count;
     $('monthTotal').textContent = fmtMoney(s.total);
+    $('monthTitle').textContent = calYear + '年' + (calMonth + 1) + '月';
 
     var empty = $('recordsEmpty');
-    if (!records.length) {
-      empty.hidden = false;
-      return;
-    }
+    if (!visibleRecords().length) { empty.hidden = false; return; }
     empty.hidden = true;
 
-    var byDay = {};
-    records.forEach(function (r) { (byDay[r.date] = byDay[r.date] || []).push(r); });
-
-    Object.keys(byDay).sort(function (a, b) { return b.localeCompare(a); }).forEach(function (day) {
-      var dayRecords = byDay[day];
-      var dayTotal = dayRecords.reduce(function (s2, r) { return s2 + r.amount; }, 0);
-
-      var block = document.createElement('div');
-      block.className = 'records-day';
-
-      var head = document.createElement('div');
-      head.className = 'records-day-header';
-      head.innerHTML = '<span>' + dayLabel(day) + '</span><span>−¥' + fmtMoney(dayTotal) + '</span>';
-      block.appendChild(head);
-
-      dayRecords.forEach(function (r) {
-        var item = document.createElement('div');
-        item.className = 'record-item';
-        var tag = findTag(r.tagId);
-        var emoji = tag ? tag.emoji : '🧾';
-        var color = (tag && tag.color) ? tag.color : '#8E8E93';
-        var tagName = tag ? tag.name : '已删除标签';
-        var note = r.note ? '<div class="record-note">' + escapeHtml(r.note) + '</div>' : '';
-        item.innerHTML =
-          '<div class="record-emoji" style="background:' + color + '1f;">' + emoji + '</div>' +
-          '<div class="record-info"><div class="record-tag">' + escapeHtml(tagName) + '</div>' + note + '</div>' +
-          '<div class="record-amount">−¥' + fmtMoney(r.amount) + '</div>';
-        item.onclick = function () { openDetail(r.id); };
-        block.appendChild(item);
-      });
-
-      list.appendChild(block);
-    });
+    renderCalendar();
+    renderDayRecords();
   }
 
-  function dayLabel(day) {
+  function renderCalendar() {
+    var grid = $('calGrid');
+    grid.innerHTML = '';
+    $('calTitle').textContent = calYear + '年' + (calMonth + 1) + '月';
+
+    var daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    var firstDow = new Date(calYear, calMonth, 1).getDay();
+    var leadingBlanks = (firstDow + 6) % 7; // 周一是第一天
+
+    var ym = calYear + '-' + pad(calMonth + 1);
+    var amtByDay = {};
+    visibleRecords().forEach(function (r) {
+      if (r.date && r.date.slice(0, 7) === ym) {
+        amtByDay[r.date] = (amtByDay[r.date] || 0) + r.amount;
+      }
+    });
+
+    var today = todayStr();
+
+    for (var i = 0; i < leadingBlanks; i++) {
+      var b = document.createElement('div');
+      b.className = 'cal-blank';
+      grid.appendChild(b);
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      var ds = ym + '-' + pad(d);
+      var cell = document.createElement('div');
+      cell.className = 'cal-day' + (ds === today ? ' is-today' : '') + (ds === selectedDay ? ' is-selected' : '');
+      var amt = amtByDay[ds];
+      cell.innerHTML = '<div class="cal-day-num">' + d + '</div>' +
+        (amt ? '<div class="cal-day-amt">' + fmtDayAmt(amt) + '</div>' : '');
+      cell.onclick = (function (ds2) {
+        return function () { selectedDay = ds2; renderCalendar(); renderDayRecords(); };
+      })(ds);
+      grid.appendChild(cell);
+    }
+  }
+
+  function fmtDayAmt(n) {
+    if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return n >= 100 ? String(Math.round(n)) : n.toFixed(1);
+  }
+
+  function changeMonth(delta) {
+    var d = new Date(calYear, calMonth + delta, 1);
+    calYear = d.getFullYear();
+    calMonth = d.getMonth();
+    renderRecords();
+  }
+
+  function renderDayRecords() {
+    if (!selectedDay) return;
+    var list = $('dayRecords');
+    list.innerHTML = '';
+
+    var dayRecs = visibleRecords().filter(function (r) { return r.date === selectedDay; });
+    var total = dayRecs.reduce(function (s, r) { return s + r.amount; }, 0);
+
     var today = new Date();
-    if (day === todayStr()) return '今天';
-    var yesterday = new Date(today.getTime() - 86400000);
-    if (day === toYMD(yesterday)) return '昨天';
-    var d = new Date(day + 'T00:00:00');
-    return (d.getMonth() + 1) + '月' + d.getDate() + '日 · 周' + '日一二三四五六'[d.getDay()];
+    var label;
+    if (selectedDay === todayStr()) label = '今天';
+    else {
+      var yesterday = new Date(today.getTime() - 86400000);
+      if (selectedDay === toYMD(yesterday)) label = '昨天';
+      else {
+        var dow = new Date(selectedDay + 'T00:00:00').getDay();
+        label = '周' + '日一二三四五六'[dow];
+      }
+    }
+    var dd = new Date(selectedDay + 'T00:00:00');
+    $('dayTitle').textContent = (dd.getMonth() + 1) + '月' + dd.getDate() + '日 · ' + label;
+    $('dayTotal').textContent = total > 0 ? ('−¥' + fmtMoney(total) + ' · ' + dayRecs.length + '笔') : '这一天没有账目';
+
+    var empty = $('dayEmpty');
+    if (!dayRecs.length) { empty.hidden = false; return; }
+    empty.hidden = true;
+
+    dayRecs.forEach(function (r) {
+      var item = document.createElement('div');
+      item.className = 'record-item';
+      var tag = findTag(r.tagId);
+      var emoji = tag ? tag.emoji : '🧾';
+      var color = (tag && tag.color) ? tag.color : '#8E8E93';
+      var tagName = tag ? tag.name : '已删除标签';
+      var note = r.note ? '<div class="record-note">' + escapeHtml(r.note) + '</div>' : '';
+      item.innerHTML =
+        '<div class="record-emoji" style="background:' + color + '1f;">' + emoji + '</div>' +
+        '<div class="record-info"><div class="record-tag">' + escapeHtml(tagName) + '</div>' + note + '</div>' +
+        '<div class="record-amount">−¥' + fmtMoney(r.amount) + '</div>';
+      item.onclick = function () { openDetail(r.id); };
+      list.appendChild(item);
+    });
   }
 
   /* ---------- 账目详情 ---------- */
@@ -333,7 +402,8 @@
     if (!currentRecordId) return;
     closeModal('detailModal');
     confirmAction('删除这笔账', '删除后无法恢复，确定要删除这笔 ' + fmtMoney(findRecord(currentRecordId).amount) + ' 元的账吗？', '删除', function () {
-      records = records.filter(function (r) { return r.id !== currentRecordId; });
+      var r = findRecord(currentRecordId);
+      if (r) { r.deleted = true; r.updatedAt = Date.now(); }
       saveRecords();
       markDirty();
       renderRecords();
@@ -476,8 +546,12 @@
     return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes());
   }
 
+  function visibleRecords() {
+    return records.filter(function (r) { return !r.deleted; });
+  }
+
   function exportJSON() {
-    var data = { app: '我的记账本', version: 1, exportedAt: new Date().toISOString(), tags: tags, records: records };
+    var data = { app: '我的记账本', version: 1, exportedAt: new Date().toISOString(), tags: tags, records: visibleRecords() };
     download('记账本备份-' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json');
     toast('备份文件已导出');
   }
@@ -485,7 +559,7 @@
   function exportCSV() {
     var BOM = '﻿';
     var rows = ['日期,金额,用途,备注'];
-    records.forEach(function (r) {
+    visibleRecords().forEach(function (r) {
       var tag = findTag(r.tagId);
       var name = tag ? tag.name : '已删除标签';
       rows.push([r.date, r.amount, name, '"' + String(r.note || '').replace(/"/g, '""') + '"'].join(','));
@@ -526,7 +600,7 @@
 
   function clearAll() {
     confirmAction('清空所有账目', '将删除全部 ' + records.length + ' 笔记录（标签保留）。删除后无法恢复！建议先导出备份。确定清空吗？', '全部清空', function () {
-      records = [];
+      records.forEach(function (r) { r.deleted = true; r.updatedAt = Date.now(); });
       saveRecords();
       markDirty();
       renderRecords();
@@ -598,11 +672,49 @@
       });
   }
 
+  // 合并云端的账到本地：按 id 合并，谁更新用谁，绝不互相覆盖（防止数据丢失）
+  function mergeCloudIntoLocal(d) {
+    if (!d) return;
+    var localTagIds = {};
+    tags.forEach(function (t) { if (t && t.id) localTagIds[t.id] = t; });
+    (d.tags || []).forEach(function (t) {
+      if (t && t.id && !localTagIds[t.id]) { tags.push(t); localTagIds[t.id] = t; }
+    });
+    (d.records || []).forEach(function (r) {
+      if (!r || !r.id) return;
+      var localR = null;
+      for (var i = 0; i < records.length; i++) if (records[i].id === r.id) { localR = records[i]; break; }
+      if (!localR) {
+        records.push({ id: r.id, amount: r.amount, tagId: r.tagId || '', note: r.note || '', date: r.date || todayStr(), createdAt: r.createdAt || Date.now(), updatedAt: r.updatedAt || Date.now(), deleted: !!r.deleted });
+      } else {
+        var rt = r.updatedAt || r.createdAt || 0;
+        var lt = localR.updatedAt || localR.createdAt || 0;
+        if (rt > lt) {
+          localR.amount = r.amount;
+          localR.tagId = r.tagId || localR.tagId;
+          localR.note = r.note;
+          localR.date = r.date;
+          if (r.deleted !== undefined) localR.deleted = !!r.deleted;
+          if (r.updatedAt) localR.updatedAt = r.updatedAt;
+        }
+      }
+    });
+    records.sort(function (a, b) { return b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0); });
+  }
+
   function syncPush() {
     var c = syncCfg();
     if (!syncConfigured()) return Promise.resolve({ ok: false, code: '未配置' });
     setSyncStatus('syncing');
     return syncGet().then(function (remote) {
+      if (remote && remote.data) {
+        var s = getSettings();
+        var rt = remote.data.updatedAt || 0;
+        if (rt > (s.updatedAt || 0)) { s.updatedAt = rt; setSettings(s); }
+        mergeCloudIntoLocal(remote.data);
+        saveTags(); saveRecords();
+        refreshAll();
+      }
       var body = buildSyncDoc();
       var payload = {
         message: '记账本同步 ' + new Date().toLocaleString('zh-CN'),
@@ -681,26 +793,9 @@
     setSyncStatus('syncing');
     ensureSyncRepo().then(function (r) {
       if (!r.ok) { setSyncStatus('error'); toast('云仓库准备失败：' + syncHint(r.code)); return; }
-      return syncGet().then(function (remote) {
-        var localT = getSettings().updatedAt || 0;
-        var remoteT = remote ? (remote.data.updatedAt || 0) : 0;
-        if (!remote || remoteT <= localT) {
-          return syncPush().then(function (p) {
-            if (!p.ok) { setSyncStatus('error'); toast('同步失败：' + syncHint(p.code)); }
-            else setSyncStatus('ok');
-          });
-        }
-        tags = remote.data.tags || [];
-        records = remote.data.records || [];
-        saveTags(); saveRecords();
-        var s = getSettings(); s.updatedAt = remoteT; setSettings(s);
-        selectedTagId = tags[0] ? tags[0].id : null;
-        refreshAll();
-        setSyncStatus('ok');
-        toast('已从云端同步最新账目');
-      }).catch(function (e) {
-        setSyncStatus('error');
-        toast('同步失败：' + syncHint(e && e.code));
+      syncPush().then(function (p) {
+        if (!p.ok) { setSyncStatus('error'); toast('同步失败：' + syncHint(p.code)); }
+        else setSyncStatus('ok');
       });
     }).catch(function () { setSyncStatus('error'); });
   }
@@ -727,15 +822,16 @@
     if (!syncConfigured()) { toast('请先填写并保存同步设置'); return; }
     setSyncStatus('syncing');
     syncGet().then(function (remote) {
-      if (!remote) { toast('云端还没有数据'); setSyncStatus('off'); return; }
-      tags = remote.data.tags || [];
-      records = remote.data.records || [];
+      if (!remote || !remote.data) { toast('云端还没有数据'); setSyncStatus('off'); return; }
+      var s = getSettings();
+      var rt = remote.data.updatedAt || 0;
+      if (rt > (s.updatedAt || 0)) { s.updatedAt = rt; setSettings(s); }
+      mergeCloudIntoLocal(remote.data);
       saveTags(); saveRecords();
-      var s = getSettings(); s.updatedAt = remote.data.updatedAt || Date.now(); setSettings(s);
-      selectedTagId = tags[0] ? tags[0].id : null;
+      if (selectedTagId == null) selectedTagId = tags[0] ? tags[0].id : null;
       refreshAll();
       setSyncStatus('ok');
-      toast('已从云端拉取 ' + records.length + ' 笔账');
+      toast('已从云端合并 ' + visibleRecords().length + ' 笔账');
     }).catch(function (e) {
       setSyncStatus('error');
       toast('拉取失败：' + syncHint(e && e.code));
@@ -757,6 +853,48 @@
     $('syncRepo').value = s.syncRepo || '';
     $('syncToken').value = s.syncToken || '';
     setSyncStatus(syncConfigured() ? 'ok' : 'off');
+  }
+
+  /* ---------- 同步链接（换微信账号免重填） ---------- */
+  function generateSyncLink() {
+    var s = getSettings();
+    if (!s.syncToken || !s.syncRepo) { toast('请先填写并保存云同步设置'); return; }
+    var data = { owner: s.syncOwner || 'yx-1-s', repo: s.syncRepo, token: s.syncToken };
+    var link = location.origin + location.pathname + '#sync=' + encodeURIComponent(JSON.stringify(data));
+    var box = $('syncLink');
+    box.value = link;
+    $('syncLinkBox').hidden = false;
+    box.focus();
+    box.select();
+  }
+
+  function copySyncLink() {
+    var box = $('syncLink');
+    if (!box.value) { generateSyncLink(); return; }
+    box.select();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(box.value).then(function () {
+        toast('链接已复制，发给自己另一个微信打开即可');
+      }, function () { toast('复制失败，请长按上面的链接复制'); });
+    } else {
+      try { document.execCommand('copy'); toast('链接已复制，发给自己另一个微信打开即可'); }
+      catch (e) { toast('请长按上面的链接复制'); }
+    }
+  }
+
+  function readSyncLink() {
+    var h = location.hash || '';
+    var m = h.match(/[#&]sync=([^&]+)/);
+    if (!m) return;
+    var data;
+    try { data = JSON.parse(decodeURIComponent(m[1])); } catch (e) { return; }
+    var s = getSettings();
+    s.syncOwner = data.owner || 'yx-1-s';
+    s.syncRepo = data.repo || '';
+    s.syncToken = data.token || '';
+    setSettings(s);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    toast('已通过链接配置云同步，正在连接…');
   }
 
   /* ---------- 键盘事件 ---------- */
@@ -793,6 +931,9 @@
       } catch (e) {}
     }
 
+    // 如果是通过"同步链接"打开的，先自动填好云同步设置
+    readSyncLink();
+
     tryAutoSync();
   }
 
@@ -817,4 +958,8 @@
   window.syncNow = syncNow;
   window.pullNow = pullNow;
   window.disableSync = disableSync;
+  window.generateSyncLink = generateSyncLink;
+  window.copySyncLink = copySyncLink;
+  window.readSyncLink = readSyncLink;
+  window.changeMonth = changeMonth;
 })();
