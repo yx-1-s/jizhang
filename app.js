@@ -6,6 +6,9 @@
   var LS_TAGS = 'jz_tags';
   var LS_RECORDS = 'jz_records';
   var LS_SETTINGS = 'jz_settings';
+  var LS_SYNC_LINK = 'jz_sync_link';
+
+  var APP_VERSION = 'v3';
 
   var DEFAULT_TAGS = [
     { id: 't1', name: '餐饮', emoji: '🍚', color: '#FF9F0A' },
@@ -788,16 +791,28 @@
     return map[code] || ('出错了（' + code + '）');
   }
 
-  function tryAutoSync() {
+  function tryAutoSync(attempt) {
     if (!syncConfigured()) { setSyncStatus('off'); return; }
+    attempt = attempt || 0;
     setSyncStatus('syncing');
     ensureSyncRepo().then(function (r) {
-      if (!r.ok) { setSyncStatus('error'); toast('云仓库准备失败：' + syncHint(r.code)); return; }
+      if (!r.ok) {
+        setSyncStatus('error');
+        if (attempt < 2) setTimeout(function () { tryAutoSync(attempt + 1); }, 4000);
+        else toast('云仓库准备失败：' + syncHint(r.code));
+        return;
+      }
       syncPush().then(function (p) {
-        if (!p.ok) { setSyncStatus('error'); toast('同步失败：' + syncHint(p.code)); }
-        else setSyncStatus('ok');
+        if (!p.ok) {
+          setSyncStatus('error');
+          if (attempt < 2) setTimeout(function () { tryAutoSync(attempt + 1); }, 4000);
+          else toast('同步失败：' + syncHint(p.code));
+        } else setSyncStatus('ok');
       });
-    }).catch(function () { setSyncStatus('error'); });
+    }).catch(function () {
+      setSyncStatus('error');
+      if (attempt < 2) setTimeout(function () { tryAutoSync(attempt + 1); }, 4000);
+    });
   }
 
   function saveSyncSettings() {
@@ -864,6 +879,7 @@
     var box = $('syncLink');
     box.value = link;
     $('syncLinkBox').hidden = false;
+    try { localStorage.setItem(LS_SYNC_LINK, '#sync=' + encodeURIComponent(JSON.stringify(data))); } catch (e) {}
     box.focus();
     box.select();
   }
@@ -882,19 +898,40 @@
     }
   }
 
-  function readSyncLink() {
-    var h = location.hash || '';
-    var m = h.match(/[#&]sync=([^&]+)/);
-    if (!m) return;
-    var data;
-    try { data = JSON.parse(decodeURIComponent(m[1])); } catch (e) { return; }
+  function applySyncData(data) {
     var s = getSettings();
     s.syncOwner = data.owner || 'yx-1-s';
     s.syncRepo = data.repo || '';
     s.syncToken = data.token || '';
     setSettings(s);
-    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-    toast('已通过链接配置云同步，正在连接…');
+  }
+
+  function readSyncLink() {
+    var h = location.hash || '';
+    var m = h.match(/[#&]sync=([^&]+)/);
+    if (m) {
+      var data = null;
+      try { data = JSON.parse(decodeURIComponent(m[1])); } catch (e) {}
+      if (data) {
+        applySyncData(data);
+        // 记住这条链接：就算微信哪天清了数据，也能自动恢复，不用重填
+        try { localStorage.setItem(LS_SYNC_LINK, h.slice(1)); } catch (e) {}
+        toast('已通过链接配置云同步，正在连接…');
+        return;
+      }
+    }
+    // 网址里没带链接时，如果本地设置丢了、但存过同步链接，就自动恢复
+    var cfg = syncCfg();
+    if (!cfg.token || !cfg.repo) {
+      var saved = null;
+      try { saved = localStorage.getItem(LS_SYNC_LINK); } catch (e) {}
+      if (saved) {
+        var m2 = saved.match(/[#&]sync=([^&]+)/);
+        if (m2) {
+          try { applySyncData(JSON.parse(decodeURIComponent(m2[1]))); toast('已自动恢复云同步设置'); } catch (e) {}
+        }
+      }
+    }
   }
 
   /* ---------- 键盘事件 ---------- */
@@ -923,6 +960,8 @@
     updateAmount();
     $('inputDate').textContent = cnDateLine(new Date());
     refreshMonthChip();
+    var vEl = $('appVersion');
+    if (vEl) vEl.textContent = '版本 ' + APP_VERSION + '（2026-08）';
 
     // 注册离线支持
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
@@ -958,6 +997,7 @@
   window.syncNow = syncNow;
   window.pullNow = pullNow;
   window.disableSync = disableSync;
+  window.tryAutoSync = tryAutoSync;
   window.generateSyncLink = generateSyncLink;
   window.copySyncLink = copySyncLink;
   window.readSyncLink = readSyncLink;
