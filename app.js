@@ -8,7 +8,7 @@
   var LS_SETTINGS = 'jz_settings';
   var LS_SYNC_LINK = 'jz_sync_link';
 
-  var APP_VERSION = 'v3';
+  var APP_VERSION = 'v4';
 
   var DEFAULT_TAGS = [
     { id: 't1', name: '餐饮', emoji: '🍚', color: '#FF9F0A' },
@@ -807,7 +807,10 @@
           setSyncStatus('error');
           if (attempt < 2) setTimeout(function () { tryAutoSync(attempt + 1); }, 4000);
           else toast('同步失败：' + syncHint(p.code));
-        } else setSyncStatus('ok');
+        } else {
+          setSyncStatus('ok');
+          if (p.pulled) toast('已从云端找回账目');
+        }
       });
     }).catch(function () {
       setSyncStatus('error');
@@ -868,6 +871,8 @@
     $('syncRepo').value = s.syncRepo || '';
     $('syncToken').value = s.syncToken || '';
     setSyncStatus(syncConfigured() ? 'ok' : 'off');
+    var rb = $('recoverBox');
+    if (rb) rb.hidden = syncConfigured();
   }
 
   /* ---------- 同步链接（换微信账号免重填） ---------- */
@@ -904,6 +909,23 @@
     s.syncRepo = data.repo || '';
     s.syncToken = data.token || '';
     setSettings(s);
+  }
+
+  // 微信切换账号会清空缓存（设置和账都会没）。把同步链接粘贴进来，就能把设置和账目全找回来
+  function restoreFromLink() {
+    var val = ($('restoreLinkInput').value || '').trim();
+    if (!val) { toast('请先粘贴同步链接'); return; }
+    var m = val.match(/[#&]sync=([^&]+)/);
+    if (!m) { toast('这不是同步链接，请检查是否复制完整'); return; }
+    var data = null;
+    try { data = JSON.parse(decodeURIComponent(m[1])); } catch (e) {}
+    if (!data || !data.repo || !data.token) { toast('链接里缺少信息，请重新生成'); return; }
+    applySyncData(data);
+    try { localStorage.setItem(LS_SYNC_LINK, val.split('#')[1] || val); } catch (e) {}
+    try { history.replaceState(null, '', location.pathname + location.search + '#sync=' + encodeURIComponent(JSON.stringify(data))); } catch (e) {}
+    renderSyncSettings();
+    toast('已恢复设置，正在找回账目…');
+    tryAutoSync();
   }
 
   function readSyncLink() {
@@ -998,6 +1020,7 @@
   window.pullNow = pullNow;
   window.disableSync = disableSync;
   window.tryAutoSync = tryAutoSync;
+  window.restoreFromLink = restoreFromLink;
   window.generateSyncLink = generateSyncLink;
   window.copySyncLink = copySyncLink;
   window.readSyncLink = readSyncLink;
