@@ -8,10 +8,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="记账本">
 <title>我的记账本</title>
-<link rel="manifest" href="manifest.json?v=3">
+<link rel="manifest" href="manifest.json?v=4">
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -126,6 +126,7 @@
       <div class="empty-tip" id="recordsEmpty" hidden>
         <div class="empty-emoji">📝</div>
         还没有账目，去记第一笔吧！
+        <div class="empty-hint">如果之前记过账却不见了，可能是微信切换账号清了缓存。去 <b>设置 → 云同步</b> 用「同步链接」找回。</div>
       </div>
     </div>
   </section>
@@ -141,6 +142,11 @@
     <div class="settings-stage">
       <div class="setting-block">
         <div class="setting-title">云同步 <span class="setting-sub" id="syncStatusText">（未开启）</span></div>
+        <div id="recoverBox" class="recover-box">
+          <div class="about-text" style="margin-bottom:6px"><strong>⚠️ 账目不见了？</strong><br>微信切换账号会清空这里的缓存（账目和设置都会没）。<strong>点开你微信聊天里保存过的「同步链接」</strong>（发给自己那条消息），账就会自动找回来；也可以把链接粘贴到下面：</div>
+          <input type="text" id="restoreLinkInput" class="text-input" placeholder="把同步链接粘贴到这里">
+          <button class="setting-row" onclick="restoreFromLink()"><span>🔁 用这条链接找回账目</span><span class="setting-arrow">›</span></button>
+        </div>
         <div class="about-text" style="margin-bottom:8px">开启后，账目自动存到你的 GitHub 私有仓库，任何手机/浏览器打开都是同一份账。私有仓库会自动创建，你只需填一个 GitHub 令牌。</div>
         <label class="field-label" for="syncOwner">GitHub 用户名</label>
         <input type="text" id="syncOwner" class="text-input" placeholder="yx-1-s">
@@ -153,7 +159,7 @@
         <button class="setting-row" onclick="pullNow()"><span>📥 从云端拉取（换新手机时用）</span><span class="setting-arrow">›</span></button>
         <button class="setting-row" onclick="generateSyncLink()"><span>🔗 生成同步链接（换微信账号免重填）</span><span class="setting-arrow">›</span></button>
         <div class="sync-link-box" id="syncLinkBox" hidden>
-          <div class="about-text" style="margin-bottom:6px">把这个链接发给你自己的另一个微信，点开后它会<strong>自动配好云同步并合并账目</strong>。以后两个微信都从这条链接进，就算微信清了缓存也不用再填令牌。</div>
+          <div class="about-text" style="margin-bottom:6px">把这个链接发给你自己的另一个微信，点开后它会<strong>自动配好云同步并合并账目</strong>。<br><strong>⭐ 这条链接一定要留在微信聊天里，别删</strong>——以后换账号、清缓存，全靠它一键找回账目。</div>
           <input type="text" id="syncLink" class="text-input" readonly onclick="this.select()">
           <button class="setting-row" onclick="copySyncLink()"><span>📋 复制这个链接</span><span class="setting-arrow">›</span></button>
         </div>
@@ -195,8 +201,9 @@
         <div class="setting-title">使用说明</div>
         <div class="about-text">
           · 开启云同步后，账目自动存在你的 GitHub 私有仓库，微信 / Safari / 换手机看到的都是同一份账。<br>
-          · 没开云同步时，账目只存在这台手机的浏览器里，微信和 Safari 的账是分开的。<br>
+          · <strong>微信切换账号会清空这里的缓存</strong>。换账号后点开聊天里的「同步链接」即可自动找回账目。<br>
           · 换微信账号：从<strong>同步链接</strong>进另一个微信，会自动配好并合并账目。<br>
+          · 推荐用手机 Safari「添加到主屏幕」把记账本当 App 用，账最稳（微信清了缓存也不影响）。<br>
           · 无论是否开云同步，都建议定期<strong>导出备份</strong>。
         </div>
       </div>
@@ -274,6 +281,6 @@
 <!-- 提示气泡 -->
 <div class="toast" id="toast" hidden></div>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
