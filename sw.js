@@ -1,11 +1,11 @@
 /* 我的记账本 · Service Worker（离线缓存） */
-var CACHE = 'jizhang-v2';
+var CACHE = 'jizhang-v3';
 var ASSETS = [
   './',
   'index.html',
-  'style.css',
-  'app.js',
-  'manifest.json',
+  'style.css?v=3',
+  'app.js?v=3',
+  'manifest.json?v=3',
   'icon.svg',
   'icon.png'
 ];
